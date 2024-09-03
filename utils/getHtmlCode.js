@@ -1,6 +1,7 @@
-const axios = require('axios');
+const http = require('http');
+const https = require('https');
 
-const generateHtmlCodeForResponse = (listItems)=>{
+const generateHtmlCodeForResponse = (listItems) => {
     const htmlResponse = `
     <html>
     <head></head>
@@ -11,25 +12,38 @@ const generateHtmlCodeForResponse = (listItems)=>{
         </ul>
     </body>
     </html>`;
-
-
     return htmlResponse;
-}
+};
 
-const fetchTitle = async(url) =>{
-    try {
-        // Fetch the webpage content
-        const response = await axios.get(url);
+const fetchTitle = (url, callback) => {
+    const client = url.startsWith('https') ? https : http;
 
-        // Extract the title using regex
-        const titleMatch = response.data.match(/<title>(.*?)<\/title>/i);
-        const title = titleMatch ? titleMatch[1].trim() : 'NO TITLE FOUND';
+    client.get(url, (res) => {
+        let data = '';
 
-        return title;
-    } catch (error) {
-        return null;  // Return null if there's an error
-    }
-}
+        // Handle redirects
+        if (res.statusCode === 301 || res.statusCode === 302) {
+            const location = res.headers.location;
+            const newUrl = location.startsWith('http') ? location : `${url.split('://')[0]}://${location}`;
+            fetchTitle(newUrl, callback); // Recursive call for the new URL
+            return;
+        }
 
+        // Receive chunks of data
+        res.on('data', (chunk) => {
+            data += chunk;
+        });
 
-module.exports = { generateHtmlCodeForResponse, fetchTitle}
+        // When data reception is complete
+        res.on('end', () => {
+            const titleMatch = data.match(/<title>(.*?)<\/title>/i);
+            const title = titleMatch ? titleMatch[1].trim() : 'NO TITLE FOUND';
+            callback(null, title);
+        });
+
+    }).on('error', (err) => {
+        callback(err, null);
+    });
+};
+
+module.exports = { generateHtmlCodeForResponse, fetchTitle };

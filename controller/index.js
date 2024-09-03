@@ -1,6 +1,6 @@
 const { generateHtmlCodeForResponse, fetchTitle } = require("../utils/getHtmlCode");
 
-const getUrlsToGtTitles = async (req,res) =>{
+const getUrlsToGtTitles = (req, res) => {
     const addresses = req.query.address;
 
     if (!addresses) {
@@ -8,24 +8,44 @@ const getUrlsToGtTitles = async (req,res) =>{
     }
 
     const addressArray = Array.isArray(addresses) ? addresses : [addresses];
-    
-    const results = await Promise.all(addressArray.map(async (address) => {
+    let results = [];
+    let completedRequests = 0;
+
+    addressArray.forEach(address => {
         let url = address.startsWith('http') ? address : `http://${address}`;
-        let title = await fetchTitle(url);
 
-        if (title === null && !address.startsWith('https://')) {
-            url = `https://${address}`;
-            title = await fetchTitle(url);
+        // Fetch title using callback
+        fetchTitle(url, (err, title) => {
+            if (err || title === null) {
+                if (!address.startsWith('https://')) {
+                    // If the initial HTTP request fails, try HTTPS
+                    url = `https://${address}`;
+                    fetchTitle(url, (err, title) => {
+                        if (err || title === null) {
+                            results.push(`<li>${address} - NO RESPONSE</li>`);
+                        } else {
+                            results.push(`<li>${url} - "${title}"</li>`);
+                        }
+                        checkCompletion();
+                    });
+                } else {
+                    results.push(`<li>${address} - NO RESPONSE</li>`);
+                    checkCompletion();
+                }
+            } else {
+                results.push(`<li>${url} - "${title}"</li>`);
+                checkCompletion();
+            }
+        });
+    });
+
+    function checkCompletion() {
+        completedRequests++;
+        if (completedRequests === addressArray.length) {
+            const htmlCode = generateHtmlCodeForResponse(results);
+            res.status(200).send(htmlCode);
         }
+    }
+};
 
-        return title 
-            ? `<li>${url} - "${title}"</li>` 
-            : `<li>${address} - NO RESPONSE</li>`;
-    }));
-
-    const htmlCode = generateHtmlCodeForResponse(results)
-    res.status(200).send(htmlCode);
-}
-
-
-module.exports =  { getUrlsToGtTitles }
+module.exports = { getUrlsToGtTitles };
